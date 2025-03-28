@@ -9,39 +9,47 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
-def get_path(name):
-    return os.path.join("people", f"{name}.jpg")
+class DatabaseWriter:
+    def __init__(self, name=None):
+        self.name = name
 
-def save_into_database(name, embedding):
-    try:
-        conn = mysql.connector.connect(
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            database=DB_NAME
-        )
-        cursor = conn.cursor()
+    def set_name(self, name):
+        self.name = name
 
+    def get_path(self):
+        return os.path.join("people", f"{self.name}.jpg")
+
+    def save_into_database(self, name, embedding):
         try:
-            embedding_bytes = embedding.tobytes()
-            img_path = get_path(name)
+            self.set_name(name)
+            conn = mysql.connector.connect(
+                host=self.DB_HOST,
+                user=self.DB_USER,
+                password=self.DB_PASSWORD,
+                database=self.DB_NAME
+            )
+            cursor = conn.cursor()
 
-            cursor.execute("INSERT INTO users (name, image_path, embedding) VALUES (%s, %s, %s);", 
-                        (name, img_path, embedding_bytes))
-            conn.commit()
+            try:
+                embedding_bytes = embedding.tobytes()
+                img_path = self.get_path()
 
-            print(f"Successfully inserted {name} into database.")
+                cursor.execute("INSERT INTO users (name, image_path, embedding) VALUES (%s, %s, %s);", 
+                            (name, img_path, embedding_bytes))
+                conn.commit()
 
-        except FileNotFoundError:
-            print(f"Error: Image not found for {name}")
-        except Exception as e:
-            print(f"Error processing {name}: {e}")
+                print(f"Successfully inserted {name} into database.")
 
-    except mysql.connector.Error as e:
-        print(f"Database Error: {e}")
+            except FileNotFoundError:
+                print(f"Error: Image not found for {name}")
+            except Exception as e:
+                print(f"Error processing {name}: {e}")
 
-    finally:
-        if 'conn' in locals() and conn.is_connected():
-            cursor.close()
-            conn.close()
-            print("Database connection closed.")
+        except mysql.connector.Error as e:
+            print(f"Database Error: {e}")
+
+        finally:
+            if 'conn' in locals() and conn.is_connected():
+                cursor.close()
+                conn.close()
+                print("Database connection closed.")
