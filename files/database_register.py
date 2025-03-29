@@ -17,7 +17,7 @@ class DatabaseWriter:
         self.name = name
 
     def get_path(self):
-        return os.path.join("people", f"{self.name}.jpg")
+        return os.path.join("./people", f"{self.name}.jpg")
 
     def save_into_database(self, name, embedding):
         try:
