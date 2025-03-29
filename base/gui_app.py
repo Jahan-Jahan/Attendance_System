@@ -4,49 +4,74 @@ import cv2 as cv
 import numpy as np
 import glob
 import os
+import time
 from deepface import DeepFace
 from scipy.spatial.distance import cosine
 from database_read import DatabaseReader
 from database_register import DatabaseWriter
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QStackedWidget, QLineEdit, 
-                            QMessageBox, QDialog, QSpacerItem, QSizePolicy)
-from PyQt6.QtGui import QImage, QPixmap, QFontDatabase, QFont, QPalette
-from PyQt6.QtCore import QTimer, Qt
-import qdarkstyle
+                            QMessageBox, QSpacerItem, QSizePolicy, QGraphicsDropShadowEffect)
+from PyQt6.QtGui import QImage, QPixmap, QFontDatabase, QFont, QColor
+from PyQt6.QtCore import QTimer, Qt, QUrl
+from PyQt6.QtMultimedia import QSoundEffect
 import qdarktheme
+import logging
+
+log_dir = f"{os.path.abspath(os.getcwd())}\\base\\logging"
+log_file = os.path.join(log_dir, "app.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
 
 class AuthWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
 
-        # self.setStyleSheet(qdarkstyle.load_stylesheet_pyqt6())
-
         layout = QVBoxLayout()
         
         self.username = QLineEdit()
         self.username.setPlaceholderText("Username")
+        self.input_username = None
         
         self.login_btn = QPushButton("Login")
         self.register_btn = QPushButton("Register")
         self.exit_btn = QPushButton("Exit")
 
+        self.shadow = QGraphicsDropShadowEffect()
+        self.shadow.setBlurRadius(10)
+        self.shadow.setXOffset(5)
+        self.shadow.setYOffset(5)
+        self.shadow.setColor(QColor(0, 0, 0, 150))
+        self.setGraphicsEffect(self.shadow)
+
         self.login_btn.setStyleSheet('''
             background-color: #c99402;
         ''')
+        self.login_btn.setGraphicsEffect(self.shadow)
 
         self.register_btn.setStyleSheet('''
             background-color: #5b87f2;
         ''')
+        self.register_btn.setGraphicsEffect(self.shadow)
 
         self.exit_btn.setStyleSheet('''
             background-color: #3a52e0;
         ''')
+        self.exit_btn.setGraphicsEffect(self.shadow)
 
         self.setStyleSheet('''
             color: rgb(230, 230, 230);
         ''')
+        self.setGraphicsEffect(self.shadow)
 
         background = QLabel()
         background_pixmap = QPixmap("./source/attendance_system.jpg")
@@ -61,9 +86,13 @@ class AuthWindow(QWidget):
         
         self.login_btn.clicked.connect(self.attempt_login)
         self.register_btn.clicked.connect(self.attempt_register)
-        self.exit_btn.clicked.connect(QApplication.instance().quit)
+        self.exit_btn.clicked.connect(self.attempt_exit)
 
         self.setLayout(layout)
+
+    def get_input_username(self):
+        self.input_username = self.username.text().strip().lower()
+        return self.input_username
 
     def username_check(self, username):
         filepath = os.path.join("./people", f"{username}.jpg")
@@ -74,39 +103,50 @@ class AuthWindow(QWidget):
             return False
     
     def attempt_login(self):
-        username = self.parent.get_username()
+        self.parent.play_click()
+        username = self.get_input_username()
 
         if username:
-            response = self.username_check(self.username.text())
+            response = self.username_check(self.get_input_username())
 
             if response:
+                logging.info(f"User '{self.get_input_username().capitalize()}' logged in.")
                 self.parent.login = True
                 self.parent.change_screen(1)
             else:
+                logging.warning(f"Failed login attempt for username: '{username}'")
                 QMessageBox.warning(self, "Error", "This username is not valid.")
         else:
+            logging.warning("Login attempt with empty username.")
             QMessageBox.warning(self, "Error", "Please enter your username.")
 
     def attempt_register(self):
-        username = self.parent.get_username()
+        self.parent.play_click()
+        username = self.get_input_username()
 
         if username:
             response = self.username_check(username)
 
             if not response:
+                logging.info(f"New user '{self.get_input_username().capitalize()}' registered.")
                 self.parent.register = True
                 self.parent.change_screen(1)
             else:
-                QMessageBox.warning(self, "Error", "You've been already registered.")
+                logging.warning(f"You've been already registered using username '{username}'.")
+                QMessageBox.warning(self, "Error", f"You've been already registered using username '{username}'.")
         else:
+            logging.warning(f"Please enter your username.")
             QMessageBox.warning(self, "Error", "Please enter your username.")
+
+    def attempt_exit(self):
+        logging.info("Application exited by user.")
+        self.parent.play_click()
+        QApplication.instance().quit()
 
 class WebcamWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
- 
-        # self.setStyleSheet(qdarkstyle.load_stylesheet_pyqt6())
         
         self.threshold = 0.75
 
@@ -119,22 +159,35 @@ class WebcamWindow(QWidget):
         mp_face_detection = mp.solutions.face_detection
         self.face_detection = mp_face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.5)
 
+        self.success_sound = QSoundEffect(self)
+        sound_path = os.path.abspath("./source/success.wav")
+        self.success_sound.setSource(QUrl.fromLocalFile(sound_path))
+        self.success_sound.setVolume(0.9)
+        self.success_sound.setLoopCount(1)
+
+        self.shadow = QGraphicsDropShadowEffect()
+        self.shadow.setBlurRadius(10)
+        self.shadow.setXOffset(5)
+        self.shadow.setYOffset(5)
+        self.shadow.setColor(QColor(0, 0, 0, 150))
+        self.setGraphicsEffect(self.shadow)
+
         layout = QVBoxLayout()
         
         self.video_label = QLabel()
-        # self.video_label.setFixedSize(640, 480)
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.video_label.setGraphicsEffect(self.shadow)
         
         self.capture_btn = QPushButton("Detect")
         self.capture_btn.clicked.connect(self.capture_and_process)
-        
-        self.back_btn = QPushButton("Cancel")
-        self.back_btn.clicked.connect(self.cancel)
-
+        self.capture_btn.setGraphicsEffect(self.shadow)
         self.capture_btn.setStyleSheet('''
             background-color: #c99402;
         ''')
-
+        
+        self.back_btn = QPushButton("Cancel")
+        self.back_btn.clicked.connect(self.cancel)
+        self.back_btn.setGraphicsEffect(self.shadow)
         self.back_btn.setStyleSheet('''
             background-color: #5b87f2;
         ''')
@@ -142,6 +195,7 @@ class WebcamWindow(QWidget):
         self.setStyleSheet('''
             color: rgb(230, 230, 230);
         ''')
+        self.setGraphicsEffect(self.shadow)
         
         layout.addWidget(self.video_label)
         layout.addWidget(self.capture_btn)
@@ -162,6 +216,9 @@ class WebcamWindow(QWidget):
             self.timer.stop()
             self.cap.release()
             self.cap = None
+
+    def ok_successfully(self):
+        self.success_sound.play()
 
     def preprocess_frame(self, frame):
         H, W, _ = frame.shape
@@ -200,8 +257,6 @@ class WebcamWindow(QWidget):
             
             is_face, (x, y, W, H) = self.preprocess_frame(frame)
 
-            # cv.putText(frame, "Click \"Detect\" button.", (25, 25), cv.FONT_HERSHEY_SIMPLEX, 1, (100, 70, 200), 2)
-
             if is_face:
                 cv.rectangle(frame, (x, y), (x + W, y + H), (0, 255, 0), 2, cv.LINE_AA)
 
@@ -216,7 +271,8 @@ class WebcamWindow(QWidget):
         try:
             embedding = DeepFace.represent(frame, model_name="Facenet", enforce_detection=False)
             embedding = np.array(embedding[0]["embedding"])
-        except:
+        except Exception as e:
+            logging.error(f"There is a problem in face detection: {e}")
             QMessageBox(self, "Error", "There is a problem in face detection.")
         finally:
             return embedding
@@ -226,7 +282,7 @@ class WebcamWindow(QWidget):
         try:
             sim = 1 - cosine(emb1, emb2)
         except Exception as e:
-            print(f"There is a problem in getting similarity: {e}")
+            logging.error(f"There is a problem in getting similarity operation: {e}")
         finally:
             return sim
         
@@ -254,6 +310,11 @@ class WebcamWindow(QWidget):
         
         return status, source_img, max_sim
     
+    def click_ok_btn(self):
+        self.parent.play_click()
+        time.sleep(0.1)
+        QApplication.instance().quit()
+    
     def create_final_screen(self, source_img, message="Welcome!"):
         h, w, ch = source_img.shape
         bytes_per_line = ch * w
@@ -280,7 +341,7 @@ class WebcamWindow(QWidget):
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         ok_btn = QPushButton("OK")
-        ok_btn.clicked.connect(QApplication.instance().quit)
+        ok_btn.clicked.connect(self.click_ok_btn)
         ok_btn.setStyleSheet('''
             background-color: #c99402;
         ''')
@@ -299,6 +360,7 @@ class WebcamWindow(QWidget):
         self.update()
     
     def capture_and_process(self):
+        self.parent.play_click()
         if self.cap:
             ret, frame = self.cap.read()
             if ret:
@@ -311,19 +373,24 @@ class WebcamWindow(QWidget):
                     if status:
                         message = f"Welcome {username.capitalize()}\nConfidence: %{100*max_sim:.2f}"
                         self.create_final_screen(source_img, message)
+                        self.ok_successfully()
                     else:
                         if max_sim > self.threshold:
-                            QMessageBox.warning(self, "Error", f"This face is under another username(Confidence: {max_sim})")
+                            logging.warning(f"This face is under another username(Confidence: {100*max_sim:.2f})")
+                            QMessageBox.warning(self, "Error", f"This face is under another username(Confidence: {100*max_sim:.2f})")
                         else:
-                            QMessageBox.warning(self, "Error", f"Sorry! it sounds you are not that person(Confidence: {max_sim})")
-                        QApplication.instance().quit()
+                            logging.warning(f"Sorry! it sounds you are not that person(Confidence: {100*max_sim:.2f})")
+                            QMessageBox.warning(self, "Error", f"Sorry! it sounds you are not that person(Confidence: {100*max_sim:.2f})")
+                        self.timer.start()
                 else:
                     message = "Since now, you are registered😊❤️"
+                    logging.info(message)
                     self.database_writer.save_into_database(username, current_embedding)
                     self.create_final_screen(frame, message)
                     cv.imwrite(os.path.join("./people", f"{username}.jpg"), frame)
     
     def cancel(self):
+        self.parent.play_click()
         self.parent.login = False
         self.parent.register = False
         self.stop_webcam()
@@ -343,15 +410,19 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Face Detection App")
         self.setGeometry(300, 75, 800, 600)
         
+        self.click_sound = QSoundEffect(self)
+        sound_path = os.path.abspath("./source/click.wav")
+        self.click_sound.setSource(QUrl.fromLocalFile(sound_path))
+        self.click_sound.setVolume(0.9)
+        self.click_sound.setLoopCount(1)
+        
         font_id = QFontDatabase.addApplicationFont("./source/Comic_Neue/ComicNeue-Regular.ttf")
         if font_id != -1:
             font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
             app_font = QFont(font_family, 22)
             QApplication.setFont(app_font)
         else:
-            print("Failed to load custom font.")
-        
-        # self.setStyleSheet(qdarkstyle.load_stylesheet_pyqt6())
+            logging.warning("Failed to load custom font.")
         
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
@@ -366,15 +437,22 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.webcam_screen)
 
     def get_username(self):
-        return self.auth_screen.username.text().strip().lower()
+        return self.auth_screen.get_input_username()
     
     def change_screen(self, index):
         self.stacked_widget.setCurrentIndex(index)
+
+    def play_click(self):
+        self.click_sound.play()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     stylesheet = qdarktheme.load_stylesheet(theme="dark", corner_shape="sharp")
     app.setStyleSheet(stylesheet)
+
     window = MainWindow()
     window.show()
+
+    logging.info("App is running.")
     sys.exit(app.exec())
+    logging.infor("App closed.")
